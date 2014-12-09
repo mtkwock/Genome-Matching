@@ -361,6 +361,16 @@ class _DictWrapper(object):
         """
         return sorted(self.d.items(), reverse=False)[:n]
 
+    def MostProbable(self, n=-1):
+        '''
+        Returns the most probable n key-value pairs based
+        '''
+        keyvals = [[x, self.d[x]] for x in self.d.keys()]
+        sorted_list = sorted(keyvals, key=lambda x: float(x[1]))
+        sorted_list.reverse()
+        # keyvals.sort(key=lambda x: float(x[1]))
+        return sorted_list
+
 
 class Hist(_DictWrapper):
     """Represents a histogram, which is a map from values to frequencies.
@@ -1284,10 +1294,14 @@ class Suite(Pmf):
 
         returns: the normalizing constant
         """
+        count = 0.0
+        length = len(dataset)
         for data in dataset:
             for hypo in self.Values():
                 like = self.Likelihood(data, hypo)
                 self.Mult(hypo, like)
+            count = count + 1
+            print(round(count * 100 / len(dataset), 4))
         return self.Normalize()
 
     def LogUpdateSet(self, dataset):
