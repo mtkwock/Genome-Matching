@@ -60,7 +60,9 @@ def init():
     line.set_ydata(len(x) * [0])
     return line,
 
+delay = 10000 / len(data)
+
 ani = animation.FuncAnimation(fig, animate, np.arange(0, len(data)-1), init_func=init,
-    interval=150, blit=True)
+    interval=delay, blit=True)
 plt.ylim([10**(-1 * len(data)), 1])
 plt.show()

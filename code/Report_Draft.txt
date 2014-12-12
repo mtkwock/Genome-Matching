@@ -1,0 +1,102 @@
+Report:
+
+******************
+***Introduction***
+******************
+
+In Communications and Biology, matching two sequences with an unknown separation is a constant problem that always needs to be solved.  In signals, there is often data that affects itself, dispersing its information in random and varied ways.  In Biology, we find that DNA also has sequences that are important to understand the nature of.  However, if we want to get a good hold of the sequence's meaning, we have to read it first.
+
+*****************
+***The Project***
+*****************
+
+In order to obtain the readings of a strand of DNA, biologists use PCR machines to copy DNA en masse and use the wonderful process of forward and reverse reading of DNA strands.  What these biologists get is something that looks like the following without the line up:
+
+Forward: ATTACGGTAAATCGGATCCCCTGAA...
+Reverse:         ...TCGGATCCCCTGAAAAAATCCGAGGATCCCTATCCG
+
+However, there are often errors in the reading due to the nature of using small enzymes to pick up on these strands.  In reality, we see that as the strand is read, the values are more likely to become incorrect.  They become less distinct, more random, and increasingly harder to work with.  This is where this Bayesian Genome matcher comes in.  By taking the two strands and applying Bayesian updates to each possibility, the program finds the most probable separation distances and attempts to reconstruct the strand.
+
+**********************
+***Modeling Genomes***
+**********************
+Each genome is made by putting together a sequence of about 10,000 base pairs (A, T, C, G) in equal weightings using a weighted choice function.  These rates can be changed, but for these purposes, it will be kept to a uniform value.  A forward and reverse read are then chosen between a random length and have a guaranteed area of overlap so the program has something to match.  Error is modeled by the following algorithm:
+error_mu = (relative strength of ) * (fraction through sequence) ^ (curve)
+if gaussian random with center error_mu is larger than a gaussian random of constant predictability: Return a random read (A, T, C, G of equal weights)
+Otherwise: Read correctly.
+
+This model was chosen because it would be a straightforward way of making sure that the end conditions and the internal conditions were met:
+- Least wrong in the beginning
+- Consistently erroring near the end
+- d(Error)/d(Base) > 0 for all Base
+
+Below is a plot of the error probability for various values of mus, sigmas, and curve strengths:
+[error_strength=1, error_sigma=1, read_strength=1, read_sigma=1, curve_strength=1]
+[error_strength=4, error_sigma=1, read_strength=1, read_sigma=1, curve_strength=1]
+[error_strength=1, error_sigma=1, read_strength=4, read_sigma=1, curve_strength=1]
+[error_strength=1, error_sigma=3, read_strength=1, read_sigma=1, curve_strength=1]
+[error_strength=1, error_sigma=1, read_strength=1, read_sigma=1, curve_strength=2]
+
+
+**********************************
+***Modeling the Bayesian Update***
+**********************************
+
+It'd be no fun if these were hand-matched!  That's where Bayesian comes in.  Given each base-pair, we find a lovely and frightening problem.
+Hypothesis: The sequences are shifted N base-pairs
+Data: At index I, the base pairs either match or don't match.
+
+P(H) begins as a uniform distribution and is constantly updated
+P(D|H) is the hardest part!
+
+Well, let's split up the two pieces of probabilities:
+
+Given that the data matches, let's assume they're both AA.
+The forward read will have a p chance of being A while the reverse will have a k chance of being A.  (This is the same no matter what the match)
+
+	Chances of being each base for Forward
+	|    A    |    T    |    C    |    G    |
+	|    p    | (1-p)/3 | (1-p)/3 | (1-p)/3 |
+	For Reverse
+	|    A    |    T    |    C    |    G    |
+	|    k    | (1-k)/3 | (1-k)/3 | (1-k)/3 |
+
+This means that the chances for being positively matched under these circumstances is the dot product of the vectors (That is, the chance that a A and A will match, T and T will match, and so on):
+Positive (Match exists and is detected):
+p * k + (1-p)(1-k)/3
+
+The False Negative must be the complement of this:
+1-(p * k + (1-p)(1-k)/3)
+
+That was pretty simple!
+
+Let's see what happens if the data doesn't match (Assume AT is the original match):
+
+	Chances of being each base for Forward
+	|    A    |    T    |    C    |    G    |
+	|    p    | (1-p)/3 | (1-p)/3 | (1-p)/3 |
+	For Reverse
+	|    A    |    T    |    C    |    G    |
+	| (1-k)/3 |    k    | (1-k)/3 | (1-k)/3 |
+
+Here we get a less pretty, but still workable set of equations:
+
+False Positive (A match is read even though none exists) = Dot Product:
+(p + k - 2pk)/3 + (1-p)(1-k) * 2/9
+
+Negative (No match is read when none exists) = Complement:
+1 - (p + k - 2pk)/3 + (1-p)(1-k) * 2/9
+
+
+If the genome sequencer reads a match, that means two possibilities occur: Either the Positive condition is met or the False Positive condition is met.  Therefore the possibility that the hypothesis is correct must be:
+Positive chance / (Positive Chance + False Positive Chance)
+
+If the genome sequencer reads no match, then the possibility that the hypothesis is correct must be:
+False Negative chance / (Negative chance + False Negative chance)
+
+As we might guess, often times, the first is much higher than the second, meaning that a positive match will contribute towards the hypothesis's chances, whereas a negative match will generally not contribute.  However, these values fluctuate depending on where in the sequence it is read!
+
+************************
+***The Code In Action***
+************************
+The code runs at a time of O(n^2) because each value in each string must be compared to every other value
