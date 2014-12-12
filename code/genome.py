@@ -2,46 +2,63 @@ from thinkbayes2 import *
 import random
 import string
 import sys
+import os
 
 class Settings():
 	d = dict()
 
 	def __init__(self):
-		self.Set("sigma_correct", 1)
-		self.Set("sigma_wrong", 1)
-		self.Set("curve_strength", 1)
-		self.Set("read_strength", 1)
-		self.Set("error_max", 1)
+		self.Set("sigma_correct", 1.0)
+		self.Set("sigma_wrong", 1.0)
+		self.Set("curve_strength", 1.0)
+		self.Set("read_strength", 4.0)
+		self.Set("error_max", 4.0)
 		self.Set("A_weight", 1)
 		self.Set("T_weight", 1)
 		self.Set("C_weight", 1)
 		self.Set("G_weight", 1)
 
-		self.Set("seq_min_len", 100)
-		self.Set("seq_max_len", 150)
-		self.Set("seq_min_overlap", 0.2)
-		self.Set("seq_max_overlap", 0.8)
+		self.Set("min-len", 100)
+		self.Set("max-len", 150)
+		self.Set("min-overlap", 0.2)
+		self.Set("max-overlap", 0.8)
+		self.Set("max-runs", -1)
 		self.ParseArgs()
 
 	def Get(self, setting):
-		return d[setting]
+		if setting not in self.d.keys():
+			print("Setting not found")
+			return
+		return self.d[setting]
 
 	def Set(self, setting, value):
-		d[setting] = value
+		self.d[setting] = value
 
 	def ParseArgs(self):
 		args = sys.argv
 		for i in range(len(args)):
-			if(args[i][0] == "-" and i + 1 < len(args)):
-				self.Set(args[i][1:], float(args[i+1]))
+			if(args[i][-1] is "=" and i + 1 < len(args)):
+				print(args[i] + args[i+1])
+				self.Set(args[i][:-1], float(args[i+1]))
+
+print(sys.argv)
 
 s = Settings()
 
-sigma_correct = 10
-sigma_wrong = 10
-curve_strength = 1
-read_strength = 50
-max_val = 50
+sigma_correct = s.Get('sigma_correct')
+sigma_wrong = s.Get('sigma_wrong')
+curve_strength = s.Get('curve_strength')
+read_strength = s.Get('read_strength')
+max_val = s.Get('error_max')
+
+def Prob_True(portion):
+	try:
+		loss = s.Get('error_max') * portion**s.Get('curve_strength')
+	except ValueError:
+		loss = 0
+	pmf_true = MakeNormalPmf(s.Get('read_strength'), s.Get('sigma_correct'), 5, n=100)
+	pmf_false = MakeNormalPmf(loss, s.Get('sigma_wrong'), 5, n=100)
+	return pmf_true > pmf_false
 
 def Weighted_Choice(choices):
 	'''
@@ -69,6 +86,8 @@ def Random_Genome(length_constraints=[100, 1000], weights=[1, 1, 1, 1]):
 def Read_Genome(genomic_data, length_constraints=[-1, -1], overlap_constraints=[0.2, 0.6]):
 	'''
 	Returns the forward and backward read of a given section of genomic data
+	Takes a string and based on the constraints, returns two reads, a forward and reverse.
+	The Sequence object returned has the true data along with the "read" data
 	'''
 	# Handle no constraint input
 	l = len(genomic_data)
@@ -78,7 +97,7 @@ def Read_Genome(genomic_data, length_constraints=[-1, -1], overlap_constraints=[
 		length_constraints[1] = l / 2
 
 	# Deal with poorly chosen constraints
-	assert length_constraints[1] >= length_constraints[0], "Minimum length > Maximum length, please fix"
+	assert length_constraints[1] >= length_constraints[0], "Minimum length (" + str(length_constraints[0])+") > Maximum length(" + str(length_constraints[1])+"), please fix"
 	assert overlap_constraints[1] >= overlap_constraints[0], "Minimum overlap > Maximum overlap, please fix"
 	assert length_constraints[1] * (2 - overlap_constraints[0]) < l, "Potential to overread, please decrease length_constraints max or increase overlap_constraints min"
 
@@ -127,12 +146,14 @@ class Sequence():
 			# More loss later for forward, less for reversed
 			# increasing curve strength decreases the effects earlier on
 			# Maxes out at 1 for an "equally likely" scenario of being wrong
-			loss = max_val * abs((shift-i)/l)**curve_strength
+			# loss = max_val * abs((shift-i)/l)**curve_strength
 
 			# Uses Gaussian Random to check if the value is greater, if fails, then returns a random
-			read_truthfully = random.gauss(read_strength, sigma_correct) > random.gauss(loss, sigma_wrong)
+			# read_truthfully = random.gauss(read_strength, sigma_correct) > random.gauss(loss, sigma_wrong)
 			# Might consider making Weighted_Choice always
-			read[i] = string[i] if read_truthfully else Weighted_Choice([['A', 1], ['T', 1], ['C', 1], ['G', 1]])
+			portion = 1.0 * i / l if forward else 1 - 1.0 * i/l
+			read_true = Prob_True(portion) > random.uniform(0, 1)
+			read[i] = string[i] if read_true else Weighted_Choice([['A', 1], ['T', 1], ['C', 1], ['G', 1]])
 		return ''.join(read)
 
 	def Read(self):
@@ -167,9 +188,11 @@ class Genome_Matcher(Suite):
 		index_match = hypo + index
 
 		# Deals with the no-match case
-		if(index_match >= self.forward_length):
+		if(index_match == self.forward_length):
 			# Most probably true at later values
-			return (1.0 * index / self.min_length)
+			return(1.0 * index / self.min_length)
+		if(index_match > self.forward_length):
+			return 1
 
 		forward_base = self.Get_At(index_match)
 		reverse_base = data[1]
@@ -179,18 +202,23 @@ class Genome_Matcher(Suite):
 
 			# Accounts for random chance of reading true
 			# Forward Probability of reading correctly
-			p = self.Prob_True(index_match, True)
+
+			f_portion = 1.0 * index_match / self.forward_length
+			p = (1 + 3 * Prob_True(f_portion))/4
 			# Reverse Probability of reading correctly
-			k = self.Prob_True(index, False)
+			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			k = (1 + 3 * Prob_True(r_portion))/4
 
 			positive = p * k + (1-p)*(1-k)/3
 			false_positive = (p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9
 			return positive / (positive + false_positive)
 		else:
 			# Forward Probability of reading correctly
-			p = self.Prob_True(index_match, True)
+			f_portion = 1.0 * index_match / self.forward_length
+			p = (1 + 3 * Prob_True(f_portion))/4
 			# Reverse Probability of reading correctly
-			k = self.Prob_True(index, False)
+			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			k = (1 + 3 * Prob_True(r_portion))/4
 
 			false_negative = 1 - (p * k + (1-p)*(1-k)/3)
 			negative = 	1 - ((p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9)
@@ -207,12 +235,7 @@ class Genome_Matcher(Suite):
 		self.reverse_length = rev_l
 		self.min_length = for_l if for_l < rev_l else rev_l
 
-	def Prob_True(self, index, is_forward):
-		length = self.forward_length if is_forward else self.reverse_length
-		loss = max_val * (1.0 * index / length)**curve_strength if is_forward else max_val*((length - 1.0 * index)/length)**curve_strength
-		pmf_true = MakeNormalPmf(read_strength, sigma_correct, 5, n=101)
-		pmf_false = MakeNormalPmf(loss, sigma_wrong, 5, n=101)
-		return (1 + 3 * (pmf_true > pmf_false)) * 0.25
+	
 
 
 '''
@@ -287,27 +310,22 @@ def Reconstruct(forward, reverse, offset):
 	return first + last
 
 def main():
-	# Defaults
-	seq_min_len = 10
-	seq_max_len = 15
-	seq_min_overlap = 0.3
-	seq_max_overlap = 0.7
-
-	args = sys.argv
-	if(len(args) > 1):
-		seq_min_len = int(args[1])
-		seq_max_len = int(args[2])
-		seq_min_overlap = float(args[3])
-		seq_max_overlap = float(args[4])
-
 	# Define a Random Genomic Sequence owith equally weighted A, T, C, G
 	genomic_sequence = Random_Genome([10000, 12000], [1, 1, 1, 1])
 
 	# Get the probabilistic data for each member of the sequence based on reading errors
-	forward_data, reverse_data, indices = Read_Genome(genomic_sequence, [seq_min_len, seq_max_len], [seq_min_overlap, seq_max_overlap])
+	forward_data, reverse_data, indices = Read_Genome(genomic_sequence, 
+		[s.Get('min-len'), s.Get('max-len')], 
+		[s.Get('min-overlap'), s.Get('max-overlap')])
+
+	val = 0
+	while(os.path.isfile("log" + str(val) + ".txt")):
+		val = val + 1
+
+	f = open("log" + str(val) + "values.txt", 'w')
 
 	# Use suite to find the most probable overlap between the two pieces of data
-	hypos = range(int(0.5 * seq_min_overlap * forward_data.Length()), forward_data.Length()) # Theoretically, the overlap can occur at any point in the sequence
+	hypos = range(int(0.5 * s.Get('min-overlap') * forward_data.Length()), int((1 - s.Get("min-overlap")) * forward_data.Length())) # Theoretically, the overlap can occur at any point in the sequence
 	suite = Genome_Matcher(hypos)
 	suite.Set_Forward(forward_data.Read())
 	reverse_read = reverse_data.Read()
@@ -315,21 +333,62 @@ def main():
 
 	# Deconstructs the reverse read string into a dataset and updates
 	dataset = [[idx, reverse_read[idx]] for idx in range(len(reverse_read))]
-	suite.UpdateSet(dataset)
+	random.shuffle(dataset)
 
-	print(indices[2] - indices[0])
-	suite.Print()
-	shift = suite.MostProbable()[0][0]
+	f.write("History:\n")
+	if(s.Get("max-runs") > 1):
+		print("Only performing a limited number of tests")
+		dataset = dataset[0:int(s.Get("max-runs"))]
+	suite.UpdateSetAndLog(dataset, f)
+	f.close()
 
-	print(forward_data.Read())
-	print(forward_data.Read_True())
-	print(reverse_data.Read())
-	print(reverse_data.Read_True())
+	probs = suite.MostProbable()[0:5]
+	for prob in probs:
+		print(str(prob[0]) + ": " + str(100 *prob[1])[0:5] + "%")
+	shift = probs[0][0]
+	print("True Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift))
+	print("Forward Read: " + forward_data.Read())
+	print("Forward True: " + forward_data.Read_True())
+	print("Reverse Read: " + reverse_data.Read())
+	print("Reverse True: " + reverse_data.Read_True())
 
-	print(shift)
 	reconstructed = Reconstruct(forward_data, reverse_data, shift)
+
+	print("True Overlap")
+	print(forward_data.Read())
+	print(int(indices[2]-indices[0])* "." + reverse_data.Read())
+
+	print("Probable Overlap")
+	print(forward_data.Read())
+	print(shift * "." + reverse_data.Read())
+
 	print(reconstructed)
-	print(genomic_sequence[indices[0]:indices[3]])
+
+	f = open("log" + str(val) + ".txt", 'w')
+	f.write("Command: " + ' '.join(sys.argv))
+	f.write("\nForward Read: " + forward_data.Read())
+	f.write("\nForward True: " + forward_data.Read_True())
+	f.write("\nReverse Read: " + reverse_data.Read())
+	f.write("\nReverse True: " + reverse_data.Read_True())
+	f.write("\n")
+
+	for i in range(len(probs)):
+		f.write("\n" + str(prob[0]) + ": " + str(100 *prob[1])[0:5] + "%")
+	f.write("\nTrue Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift))
+	f.write("\nTrue Overlap\n")
+	f.write(forward_data.Read() + "\n")
+	f.write(int(indices[2]-indices[0]) * " " + reverse_data.Read())
+	f.write("\nMost Probable Overlap\n")
+	f.write(reverse_data.Read() + "\n")
+	f.write(shift * " " + reverse_data.Read())
+	f.write("\nReconstructed Sequence: " + reconstructed)
+	f.write("\nTrue Sequence:          " + genomic_sequence[indices[0]:indices[3]])
+	f.write("\nErrors in the sequence: ")
+	f.write(''.join([' ' if reconstructed[x] == genomic_sequence[indices[0] + x] else "x" for x in xrange(min([len(genomic_sequence), len(reconstructed)]))]))
+	f.write("\nHistory:\n")
+	# print(forward_data.Read_True())
+	# print(genomic_sequence[indices[0]:indices[3]])
+	f.close()
 	return 0
 
 if __name__ == '__main__':

@@ -1254,6 +1254,8 @@ class UnimplementedMethodException(Exception):
 class Suite(Pmf):
     """Represents a suite of hypotheses and their probabilities."""
 
+    datalog = []
+
     def Update(self, data):
         """Updates each hypothesis based on the data.
 
@@ -1304,6 +1306,21 @@ class Suite(Pmf):
             print(round(count * 100 / len(dataset), 4))
         return self.Normalize()
 
+    def UpdateSetAndLog(self, dataset, f):
+        '''
+        Same as UpdateSet except also logs information to the given file (f)
+        '''
+        count = 0.0
+        length = len(dataset)
+        for data in dataset:
+            for hypo in self.Values():
+                like = self.Likelihood(data, hypo)
+                self.Mult(hypo, like)
+            count = count + 1
+            print(round(count * 100 / len(dataset), 4))
+            f.write(str([[x, self.Prob(x), data[0], data[1]] for x in self.Values()]) + "\n")
+        return self.Normalize()        
+
     def LogUpdateSet(self, dataset):
         """Updates each hypothesis based on the dataset.
 
@@ -1353,6 +1370,10 @@ class Suite(Pmf):
         """Transforms from odds to probabilities."""
         for hypo, odds in self.Items():
             self.Set(hypo, Probability(odds))
+
+    def GetLogs(self):
+        '''Returns the history of each hypothesis'''
+        return self.datalog
 
 
 def MakeSuiteFromList(t, label=None):
