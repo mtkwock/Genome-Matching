@@ -60,6 +60,28 @@ def Prob_True(portion):
 	pmf_false = MakeNormalPmf(loss, s.Get('sigma_wrong'), 5, n=100)
 	return pmf_true > pmf_false
 
+def drange(start, stop, steps):
+	return [1.0 * x * (stop-start) / steps + start for x in range(steps+1)]
+
+def Prob_True_Graph(err_max, sig_w, read_str, sig_c, cur_str):
+	wise = [0] * 101
+	count = 0
+	for i in drange(0, 1, 100):
+		try:
+			loss = err_max * i**cur_str
+		except ValueError:
+			loss = 0
+		pmf_true = MakeNormalPmf(read_str,sig_c, 5, n=100)
+		pmf_false = MakeNormalPmf(loss, sig_w, 5, n=100)
+		wise[count] = [i, pmf_true > pmf_false]
+		count = count + 1
+	fname = str(err_max) + " " + str(cur_str) + " " + str(read_str) + " " + str(sig_c) +  " " + str(sig_w) + ".txt"
+	f = open(fname, 'w')
+	for y in wise:
+		f.write(str(y[0]) + " " + str(y[1]) + "\n")
+	f.close()
+	return wise
+
 def Weighted_Choice(choices):
 	'''
 	Obtained from: http://stackoverflow.com/questions/3679694/a-weighted-version-of-random-choice
@@ -82,12 +104,12 @@ def Random_Genome(length_constraints=[100, 1000], weights=[1, 1, 1, 1]):
 	'''
 	return ''.join(Weighted_Choice([['A', weights[0]], ['T', weights[1]], ['C', weights[2]], ['G', weights[3]]]) for i in xrange(random.randint(length_constraints[0], length_constraints[1])))
 
-
 def Read_Genome(genomic_data, length_constraints=[-1, -1], overlap_constraints=[0.2, 0.6]):
 	'''
 	Returns the forward and backward read of a given section of genomic data
 	Takes a string and based on the constraints, returns two reads, a forward and reverse.
-	The Sequence object returned has the true data along with the "read" data
+	The Sequence object returned has the true data along with the "read" data.
+	The last thing returned is a list of the relevant indices [f_beg, f_end, r_beg, r_end]
 	'''
 	# Handle no constraint input
 	l = len(genomic_data)
@@ -146,7 +168,6 @@ class Sequence():
 			# More loss later for forward, less for reversed
 			# increasing curve strength decreases the effects earlier on
 			# Maxes out at 1 for an "equally likely" scenario of being wrong
-			# loss = max_val * abs((shift-i)/l)**curve_strength
 
 			# Uses Gaussian Random to check if the value is greater, if fails, then returns a random
 			# read_truthfully = random.gauss(read_strength, sigma_correct) > random.gauss(loss, sigma_wrong)
@@ -206,7 +227,7 @@ class Genome_Matcher(Suite):
 			f_portion = 1.0 * index_match / self.forward_length
 			p = (1 + 3 * Prob_True(f_portion))/4
 			# Reverse Probability of reading correctly
-			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			r_portion = 1 - 1.0 * index / self.reverse_length
 			k = (1 + 3 * Prob_True(r_portion))/4
 
 			positive = p * k + (1-p)*(1-k)/3
@@ -217,7 +238,7 @@ class Genome_Matcher(Suite):
 			f_portion = 1.0 * index_match / self.forward_length
 			p = (1 + 3 * Prob_True(f_portion))/4
 			# Reverse Probability of reading correctly
-			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			r_portion = 1 - 1.0 * index / self.reverse_length
 			k = (1 + 3 * Prob_True(r_portion))/4
 
 			false_negative = 1 - (p * k + (1-p)*(1-k)/3)
@@ -309,6 +330,9 @@ def Reconstruct(forward, reverse, offset):
 	last = reverse.Read()[back:]
 	return first + last
 
+def ProbGraphs(fname):
+
+
 def main():
 	# Define a Random Genomic Sequence owith equally weighted A, T, C, G
 	genomic_sequence = Random_Genome([10000, 12000], [1, 1, 1, 1])
@@ -335,6 +359,7 @@ def main():
 	dataset = [[idx, reverse_read[idx]] for idx in range(len(reverse_read))]
 	random.shuffle(dataset)
 
+	f.write("Command: " + ' '.join(sys.argv[2:]))
 	f.write("History:\n")
 	if(s.Get("max-runs") > 1):
 		print("Only performing a limited number of tests")
@@ -385,7 +410,6 @@ def main():
 	f.write("\nTrue Sequence:          " + genomic_sequence[indices[0]:indices[3]])
 	f.write("\nErrors in the sequence: ")
 	f.write(''.join([' ' if reconstructed[x] == genomic_sequence[indices[0] + x] else "x" for x in xrange(min([len(genomic_sequence), len(reconstructed)]))]))
-	f.write("\nHistory:\n")
 	# print(forward_data.Read_True())
 	# print(genomic_sequence[indices[0]:indices[3]])
 	f.close()

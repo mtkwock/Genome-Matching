@@ -6,6 +6,7 @@ Report:
 
 In Communications and Biology, matching two sequences with an unknown separation is a constant problem that always needs to be solved.  In signals, there is often data that affects itself, dispersing its information in random and varied ways.  In Biology, we find that DNA also has sequences that are important to understand the nature of.  However, if we want to get a good hold of the sequence's meaning, we have to read it first.
 
+
 *****************
 ***The Project***
 *****************
@@ -17,9 +18,11 @@ Reverse:         ...TCGGATCCCCTGAAAAAATCCGAGGATCCCTATCCG
 
 However, there are often errors in the reading due to the nature of using small enzymes to pick up on these strands.  In reality, we see that as the strand is read, the values are more likely to become incorrect.  They become less distinct, more random, and increasingly harder to work with.  This is where this Bayesian Genome matcher comes in.  By taking the two strands and applying Bayesian updates to each possibility, the program finds the most probable separation distances and attempts to reconstruct the strand.
 
+
 **********************
 ***Modeling Genomes***
 **********************
+
 Each genome is made by putting together a sequence of about 10,000 base pairs (A, T, C, G) in equal weightings using a weighted choice function.  These rates can be changed, but for these purposes, it will be kept to a uniform value.  A forward and reverse read are then chosen between a random length and have a guaranteed area of overlap so the program has something to match.  Error is modeled by the following algorithm:
 error_mu = (relative strength of ) * (fraction through sequence) ^ (curve)
 if gaussian random with center error_mu is larger than a gaussian random of constant predictability: Return a random read (A, T, C, G of equal weights)
@@ -43,6 +46,7 @@ Below is a plot of the error probability for various values of mus, sigmas, and 
 **********************************
 
 It'd be no fun if these were hand-matched!  That's where Bayesian comes in.  Given each base-pair, we find a lovely and frightening problem.
+
 Hypothesis: The sequences are shifted N base-pairs
 Data: At index I, the base pairs either match or don't match.
 
@@ -99,4 +103,61 @@ As we might guess, often times, the first is much higher than the second, meanin
 ************************
 ***The Code In Action***
 ************************
-The code runs at a time of O(n^2) because each value in each string must be compared to every other value
+
+The code runs at a time of O(n^2) because each value in each string must be compared to every other value.
+
+******BEGIN CODE********
+class Genome_Matcher(Suite):
+	def Likelihood(self, data, hypo):
+		'''
+		hypo: Starting index of the intended string
+		data: [Index, reverse_base] The read Base at Index
+
+		Returned probability is the probability that they were matched
+
+		Needs to account for:
+		Increasing error in forward string as well as decreasing in reverse
+		'''
+		index = data[0]
+		index_match = hypo + index
+
+		# Deals with the no-match case
+		if(index_match == self.forward_length):
+			# Most probably true at later values
+			return(1.0 * index / self.min_length)
+		if(index_match > self.forward_length):
+			return 1
+
+		forward_base = self.Get_At(index_match)
+		reverse_base = data[1]
+
+		if(forward_base == reverse_base):
+			# Match Found, determine chance of match accounting for False Positive
+
+			# Accounts for random chance of reading true
+			# Forward Probability of reading correctly
+
+			f_portion = 1.0 * index_match / self.forward_length
+			p = (1 + 3 * Prob_True(f_portion))/4
+			# Reverse Probability of reading correctly
+			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			k = (1 + 3 * Prob_True(r_portion))/4
+
+			positive = p * k + (1-p)*(1-k)/3
+			false_positive = (p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9
+			return positive / (positive + false_positive)
+		else:
+			# Forward Probability of reading correctly
+			f_portion = 1.0 * index_match / self.forward_length
+			p = (1 + 3 * Prob_True(f_portion))/4
+			# Reverse Probability of reading correctly
+			r_portion = 1 - 1.0 * index_match / self.reverse_length
+			k = (1 + 3 * Prob_True(r_portion))/4
+
+			false_negative = 1 - (p * k + (1-p)*(1-k)/3)
+			negative = 	1 - ((p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9)
+			return false_negative / (negative + false_negative)
+
+****** END CODE ********
+
+As we can see, the Likelihood function utilizes the same equations calculated in the model.  The primary difference is that the 
