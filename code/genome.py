@@ -1,86 +1,108 @@
 from thinkbayes2 import *
+from scipy import stats
 import random
 import string
 import sys
 import os
+import matplotlib.pyplot as plt
 
-class Settings():
+class Argument_Parser():
+	'''
+	Simple object used to parse and set different command line arguments.
+	This is not the primary part of the code, but its stored values are used
+	  throughout in order to change the outcome.
+	TODO: Make a HELP option that describes what everything does.
+	'''
 	d = dict()
 
 	def __init__(self):
-		self.Set("sigma_correct", 1.0)
-		self.Set("sigma_wrong", 1.0)
-		self.Set("curve_strength", 1.0)
-		self.Set("read_strength", 4.0)
-		self.Set("error_max", 4.0)
-		self.Set("A_weight", 1)
-		self.Set("T_weight", 1)
-		self.Set("C_weight", 1)
-		self.Set("G_weight", 1)
+		'''
+		Default Values for the program
+		'''
 
-		self.Set("min-len", 100)
-		self.Set("max-len", 150)
-		self.Set("min-overlap", 0.2)
-		self.Set("max-overlap", 0.8)
-		self.Set("max-runs", -1)
+		# Values for the Error function
+		self.Set("curve", 1.0)
+		self.Set("prob-min", 0.0)
+		self.Set("prob-max", 1.0)
+
+		# Unused values for a previous iteration of the code.
+		self.Set("sigma-correct", 1.0)
+		self.Set("sigma-wrong", 1.0)
+		self.Set("read-strength", 4.0)
+		self.Set("error_max", 4.0)
+
+		# Weights of each base pair. Currently unused
+		self.Set("A-weight", 1)
+		self.Set("T-weight", 1)
+		self.Set("C-weight", 1)
+		self.Set("G-weight", 1)
+
+		# Limits of the matched genome length
+		self.Set("length-min", 100)
+		self.Set("length-max", 150)
+		self.Set("overlap-min", 0.2)
+		self.Set("overlap-max", 0.8)
+		self.Set("runs-max", -1) # Indicates the max number of trials to run
 		self.ParseArgs()
 
 	def Get(self, setting):
 		if setting not in self.d.keys():
-			print("Setting not found")
-			return
+			raise ValueError('Setting not found: "' + setting + '"')
 		return self.d[setting]
 
 	def Set(self, setting, value):
 		self.d[setting] = value
 
 	def ParseArgs(self):
+		'''
+		Iterates through the command line arguments, looks for arguments in the form:
+		(setting)= value
+		And adds a dictionary value that can be called later.
+
+		At the moment, this only takes in float arguments, so it's just enough to actually run.
+		'''
 		args = sys.argv
 		for i in range(len(args)):
+			'''
+			Iterates through and finds if the last character is a "="
+			Then assigns each of them accordingly.
+			'''
 			if(args[i][-1] is "=" and i + 1 < len(args)):
 				print(args[i] + args[i+1])
 				self.Set(args[i][:-1], float(args[i+1]))
 
 print(sys.argv)
 
-s = Settings()
-
-sigma_correct = s.Get('sigma_correct')
-sigma_wrong = s.Get('sigma_wrong')
-curve_strength = s.Get('curve_strength')
-read_strength = s.Get('read_strength')
-max_val = s.Get('error_max')
+s = Argument_Parser()
 
 def Prob_True(portion):
-	try:
-		loss = s.Get('error_max') * portion**s.Get('curve_strength')
-	except ValueError:
-		loss = 0
-	pmf_true = MakeNormalPmf(s.Get('read_strength'), s.Get('sigma_correct'), 5, n=100)
-	pmf_false = MakeNormalPmf(loss, s.Get('sigma_wrong'), 5, n=100)
-	return pmf_true > pmf_false
+	'''
+	Indicates the probability that the returned value correct.
+	portion is the fraction through the string ()
+	
+	Requirements:
+	Perfect (1) reading at portion=0
+	Lowest reading (minimum 0) at portion = 1
 
-def drange(start, stop, steps):
-	return [1.0 * x * (stop-start) / steps + start for x in range(steps+1)]
+	At all points in between: dProb_True/dPortion < 0 
+		(Meaning probability is always decreasing)
+	'''
 
-def Prob_True_Graph(err_max, sig_w, read_str, sig_c, cur_str):
-	wise = [0] * 101
-	count = 0
-	for i in drange(0, 1, 100):
-		try:
-			loss = err_max * i**cur_str
-		except ValueError:
-			loss = 0
-		pmf_true = MakeNormalPmf(read_str,sig_c, 5, n=100)
-		pmf_false = MakeNormalPmf(loss, sig_w, 5, n=100)
-		wise[count] = [i, pmf_true > pmf_false]
-		count = count + 1
-	fname = str(err_max) + " " + str(cur_str) + " " + str(read_str) + " " + str(sig_c) +  " " + str(sig_w) + ".txt"
-	f = open(fname, 'w')
-	for y in wise:
-		f.write(str(y[0]) + " " + str(y[1]) + "\n")
-	f.close()
-	return wise
+	# 1-(p)^c
+	scale = s.Get("prob-max") - s.Get("prob-min")
+	y_intercept = s.Get("prob-max")
+	if(scale > 1 or scale < 0):
+		scale = 1
+		y_intercept = 1.0
+
+	return y_intercept - portion ** s.Get('curve') * scale
+	# try:
+	# 	loss = s.Get('error_max') * portion**s.Get('curve_strength')
+	# except ValueError:
+	# 	loss = 0
+	# pmf_true = MakeNormalPmf(s.Get('read_strength'), s.Get('sigma_correct'), 5, n=100)
+	# pmf_false = MakeNormalPmf(loss, s.Get('sigma_wrong'), 5, n=100)
+	# return pmf_true > pmf_false
 
 def Weighted_Choice(choices):
 	'''
@@ -146,6 +168,7 @@ def Read_Genome(genomic_data, length_constraints=[-1, -1], overlap_constraints=[
 class Sequence():
 	'''
 	Wrapper for the sequence list.  Includes original sequence and created sequence with degree of randomness
+	Later, I might change this to extend strings
 	'''
 	stringdex = {'A': 0, 'T': 1, 'C': 2, 'G': 3}
 	dexstring = 'ATCG'
@@ -179,16 +202,15 @@ class Sequence():
 
 	def Read(self):
 		'''
-		Reads the sequence of "Most Probable" value at each index
+		Returns the read of the sequence without true values
 		'''
 		# return ''.join([self.dexstring[x.index(max(x))] for x in self.read_sequence])
 		return self.read_sequence
 
-	def Read_Prob(self):
-		for row in self.read_sequence:
-			print(', '.join([str(round(x, 4)) for x in row]))
-
 	def Read_True(self):
+		'''
+		Reads
+		'''
 		return self.true_sequence
 
 	def Length(self):
@@ -205,23 +227,23 @@ class Genome_Matcher(Suite):
 		Needs to account for:
 		Increasing error in forward string as well as decreasing in reverse
 		'''
-		index = data[0]
-		index_match = hypo + index
+		index        = data[0]
+		reverse_base = data[1]
+		index_match  = hypo + index
 
-		# Deals with the no-match case
+		# Deals with the no-match case because index is out of range
 		if(index_match == self.forward_length):
 			# Most probably true at later values
 			return(1.0 * index / self.min_length)
 		if(index_match > self.forward_length):
 			return 1
 
-		forward_base = self.Get_At(index_match)
-		reverse_base = data[1]
+		forward_base = self.forward_string[index_match]
 
 		if(forward_base == reverse_base):
 			# Match Found, determine chance of match accounting for False Positive
 
-			# Accounts for random chance of reading true
+			# Accounts for random chance of reading correctly because of weighted random
 			# Forward Probability of reading correctly
 
 			f_portion = 1.0 * index_match / self.forward_length
@@ -234,6 +256,7 @@ class Genome_Matcher(Suite):
 			false_positive = (p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9
 			return positive / (positive + false_positive)
 		else:
+			# No match found, what is the possibility that it's a false negative?
 			# Forward Probability of reading correctly
 			f_portion = 1.0 * index_match / self.forward_length
 			p = (1 + 3 * Prob_True(f_portion))/4
@@ -245,13 +268,18 @@ class Genome_Matcher(Suite):
 			negative = 	1 - ((p + k - 2*p*k)/3 + (1-p)*(1-k) * 2/9)
 			return false_negative / (negative + false_negative)
 
-	def Get_At(self, index):
-		return self.forward_string[index]
 
 	def Set_Forward(self, forward_string):
+		'''
+		Forward Read to compare against
+		'''
 		self.forward_string = forward_string
 
 	def Set_Lengths(self, for_l, rev_l):
+		'''
+		Utilized for purposes of updating the probability.
+		Lengths are very important to this data because of the portion aspect
+		'''
 		self.forward_length = for_l
 		self.reverse_length = rev_l
 		self.min_length = for_l if for_l < rev_l else rev_l
@@ -262,6 +290,8 @@ class Genome_Matcher(Suite):
 '''
 Decision Tree:
 
+Index out of Range:
+No match will occur guaranteed, but the chance of this happening is index / (length)
 
 MATCH:
 
@@ -330,8 +360,6 @@ def Reconstruct(forward, reverse, offset):
 	last = reverse.Read()[back:]
 	return first + last
 
-def ProbGraphs(fname):
-
 
 def main():
 	# Define a Random Genomic Sequence owith equally weighted A, T, C, G
@@ -339,39 +367,65 @@ def main():
 
 	# Get the probabilistic data for each member of the sequence based on reading errors
 	forward_data, reverse_data, indices = Read_Genome(genomic_sequence, 
-		[s.Get('min-len'), s.Get('max-len')], 
-		[s.Get('min-overlap'), s.Get('max-overlap')])
+		[s.Get('length-min'), s.Get('length-max')], 
+		[s.Get('overlap-min'), s.Get('overlap-max')])
 
-	val = 0
-	while(os.path.isfile("log" + str(val) + ".txt")):
-		val = val + 1
-
-	f = open("log" + str(val) + "values.txt", 'w')
 
 	# Use suite to find the most probable overlap between the two pieces of data
-	hypos = range(int(0.5 * s.Get('min-overlap') * forward_data.Length()), int((1 - s.Get("min-overlap")) * forward_data.Length())) # Theoretically, the overlap can occur at any point in the sequence
+	
+	# Theoretically, the overlap can occur at any point in the sequence
+	hypos = range(int(0.5 * s.Get('overlap-min') * forward_data.Length()), 
+		int((1 - s.Get("overlap-min")) * forward_data.Length()))
 	suite = Genome_Matcher(hypos)
 	suite.Set_Forward(forward_data.Read())
 	reverse_read = reverse_data.Read()
 	suite.Set_Lengths(len(forward_data.Read()), len(reverse_read))
 
 	# Deconstructs the reverse read string into a dataset and updates
+	# Randomizes the order which data is updated to make it interesting
+	# Limits the number of runs it does if a setting is made to do so
 	dataset = [[idx, reverse_read[idx]] for idx in range(len(reverse_read))]
 	random.shuffle(dataset)
-
-	f.write("Command: " + ' '.join(sys.argv[2:]))
-	f.write("History:\n")
-	if(s.Get("max-runs") > 1):
+	if(s.Get("runs-max") > 1):
 		print("Only performing a limited number of tests")
-		dataset = dataset[0:int(s.Get("max-runs"))]
+		dataset = dataset[0:int(s.Get("runs-max"))]
+
+
+	# Finds an unused logfile name by incrementing through the integers.
+	val = 0
+	while(os.path.isfile("log" + str(val) + ".txt") or 
+		  os.path.isfile("log" + str(val) + "summary.txt")):
+		val = val + 1
+
+	f = open("log" + str(val) + ".txt", 'w')
+
+	f.write("Arguments: " + ' '.join(sys.argv[1:]) + "\n")
+	f.write("History\n")
+
+	# Iterate through the dataset and log the data to be used in graphical analysis by anim.py
 	suite.UpdateSetAndLog(dataset, f)
-	f.close()
+
+	# Finds a different index based on the most starkingly different value from the line.
+	# For some unexplainable reason, this tends to get the actual value much more often
+	ex = np.asarray(list(suite.Values()))
+	why = np.log([suite[x] for x in suite.Values()])
+	slope, intercept, r_value, p_value, std_err = stats.linregress(ex, why)
+	adjusted = why - slope * ex
+	adjusted_shift = list(adjusted).index(max(adjusted)) + suite.Values()[0]
+
 
 	probs = suite.MostProbable()[0:5]
 	for prob in probs:
 		print(str(prob[0]) + ": " + str(100 *prob[1])[0:5] + "%")
+
+	# This is the best shift known by probabilities
 	shift = probs[0][0]
-	print("True Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift))
+	f.write("End History\n")
+	f.write(str(indices[2] - indices[0]) + "," + str(shift) + "," + str(adjusted_shift))
+	f.close()
+
+	print("True Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift)
+		+ " Adjusted Shift: " + str(adjusted_high))
 	print("Forward Read: " + forward_data.Read())
 	print("Forward True: " + forward_data.Read_True())
 	print("Reverse Read: " + reverse_data.Read())
@@ -387,19 +441,24 @@ def main():
 	print(forward_data.Read())
 	print(shift * "." + reverse_data.Read())
 
+	print("Adjusted Overlap")
+	print(forward_data.Read())
+	print(adjusted_high * "." + reverse_data.Read())
+
 	print(reconstructed)
 
-	f = open("log" + str(val) + ".txt", 'w')
-	f.write("Command: " + ' '.join(sys.argv))
+	f = open("log" + str(val) + "summary.txt", 'w')
+	f.write("Arguments: " + ' '.join(sys.argv[1:]))
 	f.write("\nForward Read: " + forward_data.Read())
 	f.write("\nForward True: " + forward_data.Read_True())
 	f.write("\nReverse Read: " + reverse_data.Read())
 	f.write("\nReverse True: " + reverse_data.Read_True())
 	f.write("\n")
 
-	for i in range(len(probs)):
-		f.write("\n" + str(prob[0]) + ": " + str(100 *prob[1])[0:5] + "%")
-	f.write("\nTrue Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift))
+	for prob in probs:
+		f.write(str(prob[0]) + ": " + str(100 *prob[1])[0:5] + "%")
+	f.write("\nTrue Shift: " + str(indices[2] - indices[0]) + " Most Likely: " + str(shift)
+		+ " Adjusted Shift: " + str(adjusted_high))
 	f.write("\nTrue Overlap\n")
 	f.write(forward_data.Read() + "\n")
 	f.write(int(indices[2]-indices[0]) * " " + reverse_data.Read())

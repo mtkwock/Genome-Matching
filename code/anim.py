@@ -9,6 +9,9 @@ import sys
 import os
 
 def normalize(data):
+	'''
+	Normalizes a list of floats, used to read data more usefully
+	'''
 	total = sum(data)
 	return [x / total for x in data]
 
@@ -18,19 +21,21 @@ ax.set_yscale('log')
 ax.set_xlabel('Shift amount')
 ax.set_ylabel('Probability')
 
+# Error Checking
 assert len(sys.argv) > 1, "No filename specified"
 assert os.path.isfile(sys.argv[1]), "File does not exist"
 
+# Open the file, convert to local information
 f = open(sys.argv[1], 'r')
 lines = f.read().split('\n')
-history_str = lines[lines.index("History:") + 1:]
+history_str = lines[lines.index("History") + 1: lines.index("End History")]
 xy = [line.split('],') for line in history_str]
 for y in range(len(xy)):
 	for x in range(len(xy[y])):
 		xy[y][x] = ''.join([c for c in xy[y][x] if c not in "[ ]"])
 
 data = []
-annotations = []
+annotations = [] # Used for displaying what the last update was.  Includes position and base pair information
 for time in xy:
 	if(len(time) == len(xy[1])):
 		data = data + [[[int(v.split(",")[0]), float(v.split(",")[1])] for v in time if len(v.split(",")) > 1]]
@@ -64,5 +69,18 @@ delay = 10000 / len(data)
 
 ani = animation.FuncAnimation(fig, animate, np.arange(0, len(data)-1), init_func=init,
     interval=delay, blit=True)
-plt.ylim([10**(-1 * len(data)), 1])
+lowest = min(normalize([row[1] for row in data[-1]])) # Finds lowest value from the last row.  Used to scale the ylim in the animation
+if(lowest == 0):
+	lowest = 10** (-1 * len(data))
+if(lowest == 0):
+	lowest = 10**-300
+spots = np.logspace(np.log(lowest), 1, 101)
+trues, highest, adjusted = lines[-1].split(",")
+plt.plot([trues] * 101,    spots, 'r*', linewidth=2.0)
+plt.plot([highest] * 101,  spots, 'b.')
+plt.plot([adjusted] * 101, spots, 'g.')
+
+plt.legend(["Probabilities", "True Shift", "Most Probable", "Adjusted Most Probable"], "lower right")
+plt.title("Probabilities for each base shift\n" + lines[0][11:])
+plt.ylim([lowest, 1])
 plt.show()

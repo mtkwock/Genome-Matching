@@ -1303,7 +1303,6 @@ class Suite(Pmf):
                 like = self.Likelihood(data, hypo)
                 self.Mult(hypo, like)
             count = count + 1
-            print(round(count * 100 / len(dataset), 4))
         return self.Normalize()
 
     def UpdateSetAndLog(self, dataset, f):
@@ -1317,7 +1316,6 @@ class Suite(Pmf):
                 like = self.Likelihood(data, hypo)
                 self.Mult(hypo, like)
             count = count + 1
-            print(round(count * 100 / len(dataset), 4))
             f.write(str([[x, self.Prob(x), data[0], data[1]] for x in self.Values()]) + "\n")
         return self.Normalize()        
 
